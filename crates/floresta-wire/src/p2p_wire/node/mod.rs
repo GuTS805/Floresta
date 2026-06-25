@@ -506,3 +506,36 @@ macro_rules! periodic_job {
 }
 
 pub(crate) use periodic_job;
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::p2p::ServiceFlags;
+
+    use super::ConnectionKind;
+
+    #[test]
+    fn extra_connection_kind_serializes_as_block_relay_only() {
+        // Extra is an internal stale-tip connection kind. It is exposed through
+        // RPC as block-relay-only, matching its externally visible behavior.
+        let serialized =
+            serde_json::to_string(&ConnectionKind::Extra).expect("kind should serialize");
+
+        assert_eq!(serialized, "\"block-relay-only\"");
+    }
+
+    #[test]
+    fn connection_kind_names_match_core() {
+        assert_eq!(
+            ConnectionKind::OutboundFullRelay(ServiceFlags::NETWORK).as_str(),
+            "outbound-full-relay"
+        );
+        assert_eq!(ConnectionKind::Manual.as_str(), "manual");
+        assert_eq!(ConnectionKind::Feeler.as_str(), "feeler");
+        assert_eq!(ConnectionKind::AddrFetch.as_str(), "addr-fetch");
+        assert_eq!(
+            ConnectionKind::BlockRelayOnly(ServiceFlags::NETWORK).as_str(),
+            "block-relay-only"
+        );
+        assert_eq!(ConnectionKind::Extra.as_str(), "block-relay-only");
+    }
+}

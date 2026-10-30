@@ -165,6 +165,48 @@ jobs:
             ${{ matrix.feature_args }} \
             --locked
 
+  # The workspace uses the published `floresta-common`, so changes to the in-tree copy aren't seen
+  # by the crates that depend on it until a release. Check the workspace with the in-tree copy
+  # patched in to catch those breaks early.
+  local-floresta-common:
+    runs-on: ubuntu-latest
+    env:
+      PATCH_FLORESTA_COMMON: 'patch.crates-io.floresta-common.path="crates/floresta-common"'
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up libbitcoinkernel
+        uses: $/.github/actions/setup-libbitcoinkernel
+
+      - name: Install 1.85.0 Rust Toolchain
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal --no-self-update
+          rustup default 1.85.0
+
+      # Cargo ignores the patch, without failing, if the in-tree version doesn't match the pinned one
+      - name: Check that the in-tree floresta-common is used
+        run: |
+          SOURCES=$(cargo metadata --format-version 1 --config "$PATCH_FLORESTA_COMMON" | jq -r '.packages[] | select(.name == "floresta-common") | .source')
+          if [ "$SOURCES" != "null" ]; then
+            echo "::error::The in-tree floresta-common version doesn't match the one pinned in Cargo.toml, so it can't be patched in"
+            exit 1
+          fi
+
+      # Check each crate on its own, like `just build`: checking the whole workspace at once unifies
+      # features that conflict (e.g. `floresta-rpc/async` breaks `floresta-cli`). `check` is enough
+      # to catch API breaks, and doesn't try to link the fuzz targets without `cargo fuzz`.
+      - name: Check each crate with the in-tree floresta-common
+        run: |
+          CRATES=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.source == null) | .name')
+          for crate in $CRATES; do
+            echo "Checking $crate"
+            cargo check -p "$crate" --all-targets --config "$PATCH_FLORESTA_COMMON" || exit 1
+          done
+
   build-docker:
     runs-on: ubuntu-latest
     steps:
